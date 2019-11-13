@@ -839,6 +839,19 @@ const char *ssl_cmd_SSLEngine(cmd_parms *cmd, void *dcfg, const char *arg)
     return "Argument must be On, Off, or Optional";
 }
 
+#ifndef OPENSSL_NO_ESNI
+const char *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg)
+{
+    SSLSrvConfigRec *sc = mySrvConfig(cmd->server);
+    const char *err;
+
+    /* TODO: check directory name is good and load ESNI keys */
+
+    sc->esnikeydir=arg;
+    return NULL;
+}
+#endif
+
 const char *ssl_cmd_SSLFIPS(cmd_parms *cmd, void *dcfg, int flag)
 {
 #ifdef HAVE_FIPS
@@ -2650,6 +2663,9 @@ static void ssl_srv_dump(SSLSrvConfigRec *sc, apr_pool_t *p,
     DMP_ON_OFF("SSLFIPS", sc->fips);
 #endif
     DMP_ON_OFF("SSLSessionTickets", sc->session_tickets);
+#ifndef OPENSSL_NO_ESNI
+    DMP_STRING("SSLESNIKeyDir", sc->esnikeydir);
+#endif
 }
 
 static void ssl_policy_dump(SSLSrvConfigRec *policy, apr_pool_t *p, 

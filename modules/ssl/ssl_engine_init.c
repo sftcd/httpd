@@ -305,6 +305,11 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
             sc->fips = FALSE;
         }
 #endif
+#ifndef OPENSSL_NO_ESNI
+        if (sc->esnikeydir == UNSET) {
+            sc->esnikeydir = NULL;
+        }
+#endif
     }
 
 #if APR_HAS_THREADS && MODSSL_USE_OPENSSL_PRE_1_1_API

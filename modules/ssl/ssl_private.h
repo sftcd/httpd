@@ -758,7 +758,9 @@ struct SSLSrvConfigRec {
     BOOL             compression;
 #endif
     BOOL             session_tickets;
-    
+#ifndef OPENSSL_NO_ESNI
+    char *esnikeydir;
+#endif
 };
 
 /**
@@ -807,6 +809,9 @@ const char  *ssl_cmd_SSLPassPhraseDialog(cmd_parms *, void *, const char *);
 const char  *ssl_cmd_SSLCryptoDevice(cmd_parms *, void *, const char *);
 const char  *ssl_cmd_SSLRandomSeed(cmd_parms *, void *, const char *, const char *, const char *);
 const char  *ssl_cmd_SSLEngine(cmd_parms *, void *, const char *);
+#ifndef OPENSSL_NO_ESNI
+const char  *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg);
+#endif
 const char  *ssl_cmd_SSLCipherSuite(cmd_parms *, void *, const char *, const char *);
 const char  *ssl_cmd_SSLCertificateFile(cmd_parms *, void *, const char *);
 const char  *ssl_cmd_SSLCertificateKeyFile(cmd_parms *, void *, const char *);
