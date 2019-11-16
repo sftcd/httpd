@@ -231,6 +231,9 @@ static SSLSrvConfigRec *ssl_config_server_new(apr_pool_t *p)
     sc->compression            = UNSET;
 #endif
     sc->session_tickets        = UNSET;
+#ifndef OPENSSL_NO_ESNI
+    sc->esnikeydir             = NULL;
+#endif
 
     modssl_ctx_init_server(sc, p);
 
@@ -368,6 +371,9 @@ void *ssl_config_server_merge(apr_pool_t *p, void *basev, void *addv)
     cfgMergeBool(compression);
 #endif
     cfgMergeBool(session_tickets);
+#ifndef OPENSSL_NO_ESNI
+    cfgMergeString(esnikeydir);
+#endif
 
     modssl_ctx_cfg_merge_server(p, base->server, add->server, mrg->server);
 
@@ -846,8 +852,11 @@ const char *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg)
     const char *err;
 
     /* TODO: check directory name is good and load ESNI keys */
-
     sc->esnikeydir=arg;
+    ap_log_error(APLOG_MARK, APLOG_INFO, 0, cmd->server, APLOGNO(10226)
+                 "%s: ESNIKeyDir set to %s",
+                 cmd->cmd->name, sc->esnikeydir);
+
     return NULL;
 }
 #endif

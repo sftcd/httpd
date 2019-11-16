@@ -33,6 +33,10 @@
 #include "util_md5.h"
 #include "scoreboard.h"
 
+#ifndef OPENSSL_NO_ESNI
+#include <openssl/esni.h>
+#endif
+
 static void ssl_configure_env(request_rec *r, SSLConnRec *sslconn);
 #ifdef HAVE_TLSEXT
 static int ssl_find_vhost(void *servername, conn_rec *c, server_rec *s);
@@ -2304,6 +2308,36 @@ void ssl_callback_Info(const SSL *ssl, int where, int rc)
         }
     }
 
+#ifndef OPENSSL_NO_ESNI
+    if ((where & SSL_CB_HANDSHAKE_DONE) == SSL_CB_HANDSHAKE_DONE) {
+        char *hidden=NULL;
+        char *cover=NULL;
+        int esnirv=SSL_get_esni_status((SSL*)ssl,&hidden,&cover);
+        switch (esnirv) {
+        case SSL_ESNI_STATUS_NOT_TRIED:
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10237)
+                "ESNI not attempted");
+            break;
+        case SSL_ESNI_STATUS_FAILED:
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10238)
+                "ESNI tried but failed");
+            break;
+        case SSL_ESNI_STATUS_BAD_NAME:
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10239)
+                "ESNI worked but bad name");
+            break;
+        case SSL_ESNI_STATUS_SUCCESS:
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10240)
+                    "ESNI success cover: %s hidden: %s",(cover?cover:"NONE"),(hidden?hidden:"NONE"));
+            break;
+        default:
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10241)
+                "Error getting ESNI status");
+            break;
+        }
+    }
+#endif
+
     s = mySrvFromConn(c);
     if (s && APLOGdebug(s)) {
         log_tracing_state(ssl, c, s, where, rc);
@@ -2413,6 +2447,29 @@ static apr_status_t init_vhost(conn_rec *c, SSL *ssl, const char *servername)
     return APR_NOTFOUND;
 }
 
+#ifndef OPENSSL_NO_ESNI
+unsigned int ssl_callback_ESNI(SSL *ssl, char *str)  
+{
+    conn_rec *c = (conn_rec *)SSL_get_app_data(ssl);
+    const char *esni_servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+    ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10246)
+                      "later call to get server nane of |%s|",esni_servername);
+    if (esni_servername == NULL) {
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    /* try init vhost and see what breaks */
+    apr_status_t ivstatus=init_vhost(c, ssl, esni_servername);
+    if (ivstatus!=APR_SUCCESS) {
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10247)
+                      "init_vhost failed for %s",esni_servername);
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10248)
+                      "init_vhost worked for %s",esni_servername);
+    return 1;
+}
+#endif
+
 /*
  * This callback function is executed when OpenSSL encounters an extended
  * client hello with a server name indication extension ("SNI", cf. RFC 6066).
@@ -2436,7 +2493,18 @@ int ssl_callback_ClientHello(SSL *ssl, int *al, void *arg)
     const unsigned char *pos;
     size_t len, remaining;
     (void)arg;
- 
+
+#ifndef OPENSSL_NO_ESNI
+
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_esni, &pos, &remaining)) {
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10243)
+                      "there is an ESNI extension");
+    } else {
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10244)
+                      "there is NO ESNI extension");
+    }
+#endif
+
     /* We can't use SSL_get_servername() at this earliest OpenSSL connection
      * stage, and there is no SSL_client_hello_get0_servername() provided as
      * of OpenSSL 1.1.1. So the code below, that extracts the SNI from the

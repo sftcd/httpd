@@ -759,7 +759,7 @@ struct SSLSrvConfigRec {
 #endif
     BOOL             session_tickets;
 #ifndef OPENSSL_NO_ESNI
-    char *esnikeydir;
+    const char *esnikeydir;
 #endif
 };
 
@@ -925,6 +925,9 @@ int          ssl_callback_ServerNameIndication(SSL *, int *, modssl_ctx_t *);
 #endif
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(LIBRESSL_VERSION_NUMBER)
 int          ssl_callback_ClientHello(SSL *, int *, void *);
+#ifndef OPENSSL_NO_ESNI
+unsigned int ssl_callback_ESNI(SSL *,char *);
+#endif
 #endif
 #ifdef HAVE_TLS_SESSION_TICKETS
 int         ssl_callback_SessionTicket(SSL *, unsigned char *, unsigned char *,

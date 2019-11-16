@@ -32,6 +32,14 @@
 #include "mpm_common.h"
 #include "mod_md.h"
 
+#ifndef OPENSSL_NO_ESNI
+/* TODO: use ap_* portable functions */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <openssl/esni.h>
+#endif
+
 static apr_status_t ssl_init_ca_cert_path(server_rec *, apr_pool_t *, const char *,
                                           STACK_OF(X509_NAME) *, STACK_OF(X509_INFO) *);
 
@@ -187,6 +195,86 @@ static void ssl_add_version_components(apr_pool_t *p,
                  modver, AP_SERVER_BASEVERSION, incver);
 }
 
+#ifndef OPENSSL_NO_ESNI
+/* 
+ * load any key files we find in the ESNIKeyDir directory 
+ * where there are matching <name>.pub and <name>.priv files
+ * that match 
+ */
+static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
+{
+    /*
+     * Try load any good looking public/private ESNI values found in files in that directory
+     * TODO: use mod_openssl ap_* functions instead for portability
+     *
+     * This code is derived from what I added to openssl s_server, which you can find
+     * in apps/s_server.c in my openssl fork, https://github.com/sftcd/openssl
+     */
+    size_t elen=strlen(esnidir);
+    if ((elen+7) >= PATH_MAX) {
+        return -1;
+    }
+    DIR *dp;
+    struct dirent *ep;
+    dp=opendir(esnidir);
+    if (dp==NULL) {
+        return -1;
+    }
+    int keystried=0;
+    int keysworked=0;
+    while ((ep=readdir(dp))!=NULL) {
+        char privname[PATH_MAX];
+        char pubname[PATH_MAX];
+        /*
+         * If the file name matches *.priv, then check for matching *.pub and try enable that pair
+         */
+        size_t nlen=strlen(ep->d_name);
+        if (nlen>5) {
+            char *last5=ep->d_name+nlen-5;
+            if (strncmp(last5,".priv",5)) {
+                continue;
+            }
+            if ((elen+nlen+1+1)>=PATH_MAX) { /* +1 for '/' and of NULL terminator */
+                closedir(dp);
+                return -1;
+            }
+            snprintf(privname,PATH_MAX,"%s/%s",esnidir,ep->d_name);
+            snprintf(pubname,PATH_MAX,"%s/%s",esnidir,ep->d_name);
+            pubname[elen+1+nlen-3]='u';
+            pubname[elen+1+nlen-2]='b';
+            pubname[elen+1+nlen-1]=0x00;
+            struct stat thestat;
+            if (stat(pubname,&thestat)==0 && stat(privname,&thestat)==0) {
+                keystried++;
+                if (SSL_CTX_esni_server_enable(ctx,privname,pubname)!=1) {
+                    ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10230)
+                        "load_esnikeys failed for %s",pubname);
+                } else {
+                    ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10231)
+                        "load_esnikeys worked for %s",pubname);
+                    keysworked++;
+                }
+            }
+        }
+    }
+    if (keysworked==0) {
+        int keysloaded=0;
+        if (!SSL_CTX_esni_server_key_status(ctx,&keysloaded)) {
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10232)
+                "SSL_CTX_esni_server_key_status failed - exiting");
+            closedir(dp);
+            return -1;
+        } else {
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10249)
+                "load_esnikeys didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
+                keystried,keysloaded);
+        }
+    }
+    closedir(dp);
+    return 0;
+}
+#endif
+
 /*  _________________________________________________________________
 **
 **  Let other answer special connection attempts. 
@@ -303,11 +391,6 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
 #ifdef HAVE_FIPS
         if (sc->fips == UNSET) {
             sc->fips = FALSE;
-        }
-#endif
-#ifndef OPENSSL_NO_ESNI
-        if (sc->esnikeydir == UNSET) {
-            sc->esnikeydir = NULL;
         }
 #endif
     }
@@ -527,7 +610,30 @@ static apr_status_t ssl_init_ctx_tls_extensions(server_rec *s,
      * protocol version(s) according to the selected (name-based-)vhost, which
      * is not possible at the SNI callback stage (due to OpenSSL internals).
      */
+#ifndef OPENSSL_NO_ESNI
+    SSLSrvConfigRec *sc = mySrvConfig(s);
+    if (sc!=NULL && sc->esnikeydir!=NULL) {
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10250)
+                     "setting ESNI print callback");
+        SSL_CTX_set_esni_print_callback(mctx->ssl_ctx, ssl_callback_ESNI);
+        /* try load the keys */
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10251)
+                "ESNIKeyDir trying to load keys from %s",sc->esnikeydir);
+        int lrv=load_esnikeys(mctx->ssl_ctx,sc->esnikeydir,s);
+        if (lrv!=0) {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10252)
+                "ESNIKeyDir failed to load keys from %s- exiting",sc->esnikeydir);
+            return ssl_die(s);
+        }
+    } else {
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10253)
+            "ESNIKeyDir not set - using ClientHello callback for SNI");
+        SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
+    }
+
+#else
     SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
+#endif
 #endif
 
 #ifdef HAVE_OCSP_STAPLING
@@ -831,6 +937,41 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
      * https://github.com/openssl/openssl/issues/7178 */
     SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
 #endif
+
+#ifndef OPENSSL_NO_ESNI
+#if SSL_HAVE_PROTOCOL_TLSV1_3
+
+    /* ESNI only really makes sense for TLSv1.3 */
+    prot=SSL_CTX_get_max_proto_version(ctx);
+    if (sc->esnikeydir) {
+        if (prot == TLS1_3_VERSION) {
+            /* try load the keys */
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10227)
+                 "ESNIKeyDir trying to load keys now");
+            int rv=load_esnikeys(ctx,sc->esnikeydir,s);
+            if (rv!=0) {
+                ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10233)
+                    "ESNIKeyDir failed to load keys - exiting");
+                SSL_CTX_free(ctx);
+                mctx->ssl_ctx = NULL;
+                return ssl_die(s);
+            }
+        } else {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10228)
+                 "ESNIKeyDir configured but TLSv1.3 turned off - exiting.");
+            SSL_CTX_free(ctx);
+            mctx->ssl_ctx = NULL;
+            return ssl_die(s);
+        } 
+    }
+
+#else
+    if (sc->esnikeydir) {
+        ap_log_error(APLOG_MARK, APLOG_WARN, 0, s, APLOGNO(10229)
+                 "ESNIKeyDir configured but no TLSv1.3 so ESNI will be ignored.");
+    }
+#endif
+#endif
     
     return APR_SUCCESS;
 }
@@ -908,6 +1049,30 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
         ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s,
                      "Configuring client authentication");
 
+#ifndef OPENSSL_NO_ESNI
+
+        if (!SSL_CTX_load_verify_file(ctx,
+                                           mctx->auth.ca_cert_file))
+        {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10234)
+                    "Unable to configure verify CA file "
+                    "for client authentication");
+            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+            return ssl_die(s);
+        }
+
+        if (!SSL_CTX_load_verify_dir(ctx,
+                                           mctx->auth.ca_cert_path))
+        {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10235)
+                    "Unable to configure verify CA dir "
+                    "for client authentication");
+            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+            return ssl_die(s);
+        }
+
+#else
+
         if (!SSL_CTX_load_verify_locations(ctx,
                                            mctx->auth.ca_cert_file,
                                            mctx->auth.ca_cert_path))
@@ -918,6 +1083,8 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
             ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
             return ssl_die(s);
         }
+
+#endif
 
         if (mctx->pks && (mctx->pks->ca_name_file || mctx->pks->ca_name_path)) {
             ca_list = ssl_init_FindCAList(s, ptemp,
@@ -1034,6 +1201,15 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(01900)
                  "Configuring certificate revocation facility");
 
+#ifndef OPENSSL_NO_ESNI
+    if (!store || !X509_STORE_load_file(store, mctx->crl_file)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10236)
+                     "Host %s: unable to configure X.509 CRL storage "
+                     "for certificate revocation", mctx->sc->vhost_id);
+        ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+        return ssl_die(s);
+    }
+#else
     if (!store || !X509_STORE_load_locations(store, mctx->crl_file,
                                              mctx->crl_path)) {
         ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(01901)
@@ -1042,6 +1218,7 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
         ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
         return ssl_die(s);
     }
+#endif
 
     switch (crl_check_mode) {
        case SSL_CRLCHECK_LEAF:
@@ -1677,7 +1854,11 @@ static apr_status_t ssl_init_proxy_certs(server_rec *s,
         return ssl_die(s);
     }
 
+#ifndef OPENSSL_NO_ESNI
+    X509_STORE_load_file(store, pkp->ca_cert_file);
+#else
     X509_STORE_load_locations(store, pkp->ca_cert_file, NULL);
+#endif
 
     for (n = 0; n < ncerts; n++) {
         int i;
