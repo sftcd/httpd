@@ -201,7 +201,7 @@ static void ssl_add_version_components(apr_pool_t *p,
  * where there are matching <name>.pub and <name>.priv files
  * that match 
  */
-static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
+static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s, apr_pool_t *ptemp)
 {
     /*
      * Try load any good looking public/private ESNI values found in files in that directory
@@ -210,18 +210,34 @@ static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
      * This code is derived from what I added to openssl s_server, which you can find
      * in apps/s_server.c in my openssl fork, https://github.com/sftcd/openssl
      */
-    size_t elen=strlen(esnidir);
-    if ((elen+7) >= PATH_MAX) {
+    if (esnidir==NULL) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10254)
+                "load_esnikeys: no directory name - exiting");
         return -1;
     }
-    DIR *dp;
-    struct dirent *ep;
-    dp=opendir(esnidir);
-    if (dp==NULL) {
+    size_t elen=strlen(esnidir);
+    if ((elen+7) >= PATH_MAX) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10255)
+                "load_esnikeys: directory name too long: %s - exiting",esnidir);
         return -1;
     }
     int keystried=0;
     int keysworked=0;
+
+#define PORTABLE
+
+#ifndef PORTABLE
+    /*
+     * basic version not using APR
+     */
+    DIR *dp;
+    struct dirent *ep;
+    dp=opendir(esnidir);
+    if (dp==NULL) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10256)
+                "load_esnikeys: can't open directory %s - exiting",esnidir);
+        return -1;
+    }
     while ((ep=readdir(dp))!=NULL) {
         char privname[PATH_MAX];
         char pubname[PATH_MAX];
@@ -235,6 +251,8 @@ static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
                 continue;
             }
             if ((elen+nlen+1+1)>=PATH_MAX) { /* +1 for '/' and of NULL terminator */
+                ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10257)
+                     "load_esnikeys: key file name too long - exiting");
                 closedir(dp);
                 return -1;
             }
@@ -248,31 +266,99 @@ static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
                 keystried++;
                 if (SSL_CTX_esni_server_enable(ctx,privname,pubname)!=1) {
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10230)
-                        "load_esnikeys failed for %s (could be non-fatal)",pubname);
+                        "load_esnikeys: failed for %s (could be non-fatal)",pubname);
                 } else {
                     ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10231)
-                        "load_esnikeys worked for %s",pubname);
+                        "load_esnikeys: worked for %s",pubname);
                     keysworked++;
                 }
             }
         }
     }
+    closedir(dp);
+
+#else
+
+    /*
+     * version using APR
+     */
+    apr_dir_t *dir;
+    apr_finfo_t direntry;
+    apr_int32_t finfo_flags = APR_FINFO_TYPE|APR_FINFO_NAME;
+
+    if (!esnidir || (apr_dir_open(&dir, esnidir, ptemp) != APR_SUCCESS)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10258)
+                "load_esnikeys: can't open directory %s - exiting",esnidir);
+        return -1;
+    }
+
+    while ((apr_dir_read(&direntry, finfo_flags, dir)) == APR_SUCCESS) {
+        const char *pubname;
+        char privname[PATH_MAX];
+        if (direntry.filetype == APR_DIR) {
+            continue; /* don't try to load directories */
+        }
+        pubname = apr_pstrcat(ptemp, esnidir, "/", direntry.name, NULL);
+        /*
+         * If file name matches "*.pub" and there's a maching "*.priv"
+         * then try load those as an ESNI key pair
+         */
+        if (!pubname) {
+            continue;
+        }
+        size_t pnlen=strlen(pubname);
+        if (pnlen<5 || pnlen>PATH_MAX-1) {
+            continue;
+        }
+        if (!(pubname[pnlen-4]=='.'
+            && pubname[pnlen-3]=='p'
+            && pubname[pnlen-2]=='u'
+            && pubname[pnlen-1]=='b')) {
+            continue;
+        }
+        memcpy(privname,pubname,pnlen-4);
+        privname[pnlen-4]='.';
+        privname[pnlen-3]='p';
+        privname[pnlen-2]='r';
+        privname[pnlen-1]='i';
+        privname[pnlen]='v';
+        privname[pnlen+1]='\0';
+        /* should likely use apr_stat instead */
+        struct stat thestat;
+        apr_finfo_t theinfo;
+        if ( (apr_stat (&theinfo, pubname, APR_FINFO_MIN, ptemp)==APR_SUCCESS) 
+                && 
+             (apr_stat (&theinfo, privname, APR_FINFO_MIN, ptemp)==APR_SUCCESS) ) {
+        //if (stat(pubname,&thestat)==0 && stat(privname,&thestat)==0) {
+            keystried++;
+            if (SSL_CTX_esni_server_enable(ctx,privname,pubname)!=1) {
+                ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10230)
+                    "load_esnikeys: failed for %s (could be non-fatal)",pubname);
+            } else {
+                ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10231)
+                    "load_esnikeys: worked for %s",pubname);
+                keysworked++;
+            }
+        }
+
+    }
+    apr_dir_close(dir);
+
+#endif
     int keysloaded=0;
     if (!SSL_CTX_esni_server_key_status(ctx,&keysloaded)) {
         ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10232)
             "SSL_CTX_esni_server_key_status failed - exiting");
-        closedir(dp);
         return -1;
     }
     if (keysworked==0) {
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(10249)
-            "load_esnikeys didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
+            "load_esnikeys: didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
             keystried,keysloaded);
     } else {
-        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10249)
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10259)
             "ESNI: %d keys loaded", keysloaded);
     }
-    closedir(dp);
     return 0;
 }
 #endif
@@ -937,7 +1023,7 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
     if (sc->esnikeydir) {
         if (prot == TLS1_3_VERSION) {
             /* try load the keys */
-            int rv=load_esnikeys(ctx,sc->esnikeydir,s);
+            int rv=load_esnikeys(ctx,sc->esnikeydir,s,ptemp);
             if (rv!=0) {
                 ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10233)
                     "ESNIKeyDir failed to load keys - exiting");
