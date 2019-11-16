@@ -248,27 +248,29 @@ static int load_esnikeys(SSL_CTX *ctx, const char *esnidir, server_rec *s)
                 keystried++;
                 if (SSL_CTX_esni_server_enable(ctx,privname,pubname)!=1) {
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10230)
-                        "load_esnikeys failed for %s",pubname);
+                        "load_esnikeys failed for %s (could be non-fatal)",pubname);
                 } else {
-                    ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10231)
+                    ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10231)
                         "load_esnikeys worked for %s",pubname);
                     keysworked++;
                 }
             }
         }
     }
+    int keysloaded=0;
+    if (!SSL_CTX_esni_server_key_status(ctx,&keysloaded)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10232)
+            "SSL_CTX_esni_server_key_status failed - exiting");
+        closedir(dp);
+        return -1;
+    }
     if (keysworked==0) {
-        int keysloaded=0;
-        if (!SSL_CTX_esni_server_key_status(ctx,&keysloaded)) {
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10232)
-                "SSL_CTX_esni_server_key_status failed - exiting");
-            closedir(dp);
-            return -1;
-        } else {
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10249)
-                "load_esnikeys didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
-                keystried,keysloaded);
-        }
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(10249)
+            "load_esnikeys didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
+            keystried,keysloaded);
+    } else {
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10249)
+            "ESNI: %d keys loaded", keysloaded);
     }
     closedir(dp);
     return 0;
@@ -613,20 +615,9 @@ static apr_status_t ssl_init_ctx_tls_extensions(server_rec *s,
 #ifdef HAVE_OPENSSL_ESNI
     SSLSrvConfigRec *sc = mySrvConfig(s);
     if (sc!=NULL && sc->esnikeydir!=NULL) {
-        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10250)
-                     "setting ESNI print callback");
-        SSL_CTX_set_esni_print_callback(mctx->ssl_ctx, ssl_callback_ESNI);
-        /* try load the keys */
-        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10251)
-                "ESNIKeyDir trying to load keys from %s",sc->esnikeydir);
-        int lrv=load_esnikeys(mctx->ssl_ctx,sc->esnikeydir,s);
-        if (lrv!=0) {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10252)
-                "ESNIKeyDir failed to load keys from %s- exiting",sc->esnikeydir);
-            return ssl_die(s);
-        }
+        SSL_CTX_set_esni_callback(mctx->ssl_ctx, ssl_callback_ESNI);
     } else {
-        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10253)
+        ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10253)
             "ESNIKeyDir not set - using ClientHello callback for SNI");
         SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
     }
@@ -946,8 +937,6 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
     if (sc->esnikeydir) {
         if (prot == TLS1_3_VERSION) {
             /* try load the keys */
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10227)
-                 "ESNIKeyDir trying to load keys now");
             int rv=load_esnikeys(ctx,sc->esnikeydir,s);
             if (rv!=0) {
                 ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10233)

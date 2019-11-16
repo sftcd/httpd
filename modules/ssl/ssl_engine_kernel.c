@@ -2308,36 +2308,6 @@ void ssl_callback_Info(const SSL *ssl, int where, int rc)
         }
     }
 
-#ifdef HAVE_OPENSSL_ESNI
-    if ((where & SSL_CB_HANDSHAKE_DONE) == SSL_CB_HANDSHAKE_DONE) {
-        char *hidden=NULL;
-        char *cover=NULL;
-        int esnirv=SSL_get_esni_status((SSL*)ssl,&hidden,&cover);
-        switch (esnirv) {
-        case SSL_ESNI_STATUS_NOT_TRIED:
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10237)
-                "ESNI not attempted");
-            break;
-        case SSL_ESNI_STATUS_FAILED:
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10238)
-                "ESNI tried but failed");
-            break;
-        case SSL_ESNI_STATUS_BAD_NAME:
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10239)
-                "ESNI worked but bad name");
-            break;
-        case SSL_ESNI_STATUS_SUCCESS:
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10240)
-                    "ESNI success cover: %s hidden: %s",(cover?cover:"NONE"),(hidden?hidden:"NONE"));
-            break;
-        default:
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10241)
-                "Error getting ESNI status");
-            break;
-        }
-    }
-#endif
-
     s = mySrvFromConn(c);
     if (s && APLOGdebug(s)) {
         log_tracing_state(ssl, c, s, where, rc);
@@ -2452,11 +2422,35 @@ unsigned int ssl_callback_ESNI(SSL *ssl, char *str)
 {
     conn_rec *c = (conn_rec *)SSL_get_app_data(ssl);
     const char *esni_servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-    ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10246)
-                      "later call to get server nane of |%s|",esni_servername);
     if (esni_servername == NULL) {
         return SSL_TLSEXT_ERR_NOACK;
     }
+
+    char *hidden=NULL;
+    char *clear_sni=NULL;
+    int esnirv=SSL_get_esni_status((SSL*)ssl,&hidden,&clear_sni);
+    switch (esnirv) {
+    case SSL_ESNI_STATUS_NOT_TRIED:
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10237)
+            "ESNI not attempted");
+        break;
+    case SSL_ESNI_STATUS_FAILED:
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10238)
+            "ESNI tried but failed");
+        break;
+    case SSL_ESNI_STATUS_BAD_NAME:
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10239)
+            "ESNI worked but bad name");
+        break;
+    case SSL_ESNI_STATUS_SUCCESS:
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10240)
+                "ESNI success clear_sni: %s hidden: %s",(clear_sni?clear_sni:"NONE"),(hidden?hidden:"NONE"));
+        break;
+    default:
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10241)
+            "Error getting ESNI status");
+    }
+
     /* try init vhost and see what breaks */
     apr_status_t ivstatus=init_vhost(c, ssl, esni_servername);
     if (ivstatus!=APR_SUCCESS) {
@@ -2464,8 +2458,6 @@ unsigned int ssl_callback_ESNI(SSL *ssl, char *str)
                       "init_vhost failed for %s",esni_servername);
         return SSL_TLSEXT_ERR_NOACK;
     }
-    ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10248)
-                      "init_vhost worked for %s",esni_servername);
     return 1;
 }
 #endif
