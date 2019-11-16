@@ -851,9 +851,8 @@ const char *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg)
     SSLSrvConfigRec *sc = mySrvConfig(cmd->server);
     const char *err;
 
-    /* TODO: check directory name is good and load ESNI keys */
     sc->esnikeydir=arg;
-    ap_log_error(APLOG_MARK, APLOG_INFO, 0, cmd->server, APLOGNO(10226)
+    ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, cmd->server, APLOGNO(10226)
                  "%s: ESNIKeyDir set to %s",
                  cmd->cmd->name, sc->esnikeydir);
 
