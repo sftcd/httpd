@@ -1553,6 +1553,37 @@ int ssl_hook_Fixup(request_rec *r)
     }
 #endif
 
+#ifdef HAVE_OPENSSL_ESNI
+    /*
+     * Add the ESNI information to the environment 
+     */
+    char *hidden=NULL;
+    char *clear_sni=NULL;
+    char buf[PATH_MAX];
+    memset(buf,0,PATH_MAX);
+    int esnirv=SSL_get_esni_status((SSL*)ssl,&hidden,&clear_sni);
+    switch (esnirv) {
+    case SSL_ESNI_STATUS_NOT_TRIED:
+        snprintf(buf,PATH_MAX,"not attempted");
+        break;
+    case SSL_ESNI_STATUS_FAILED:
+        snprintf(buf,PATH_MAX,"tried but failed");
+        break;
+    case SSL_ESNI_STATUS_BAD_NAME:
+        snprintf(buf,PATH_MAX,"ESNI worked but bad name");
+        break;
+    case SSL_ESNI_STATUS_SUCCESS:
+        snprintf(buf,PATH_MAX,"success");
+        break;
+    default:
+        snprintf(buf,PATH_MAX, "error getting ESNI status");
+    }
+    apr_table_set(env, "SSL_ESNI_HIDDEN", (hidden?hidden:"NONE"));
+    apr_table_set(env, "SSL_ESNI_COVER", (clear_sni?clear_sni:"NONE"));
+    apr_table_set(env, "SSL_ESNI_STATUS", buf);
+
+#endif
+
     /* standard SSL environment variables */
     if (dc->nOptions & SSL_OPT_STDENVVARS) {
         modssl_var_extract_dns(env, ssl, r->pool);
