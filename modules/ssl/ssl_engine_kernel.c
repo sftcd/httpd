@@ -33,7 +33,7 @@
 #include "util_md5.h"
 #include "scoreboard.h"
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 #include <openssl/esni.h>
 #endif
 
@@ -2308,7 +2308,7 @@ void ssl_callback_Info(const SSL *ssl, int where, int rc)
         }
     }
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     if ((where & SSL_CB_HANDSHAKE_DONE) == SSL_CB_HANDSHAKE_DONE) {
         char *hidden=NULL;
         char *cover=NULL;
@@ -2447,7 +2447,7 @@ static apr_status_t init_vhost(conn_rec *c, SSL *ssl, const char *servername)
     return APR_NOTFOUND;
 }
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 unsigned int ssl_callback_ESNI(SSL *ssl, char *str)  
 {
     conn_rec *c = (conn_rec *)SSL_get_app_data(ssl);
@@ -2494,7 +2494,7 @@ int ssl_callback_ClientHello(SSL *ssl, int *al, void *arg)
     size_t len, remaining;
     (void)arg;
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 
     if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_esni, &pos, &remaining)) {
         ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10243)

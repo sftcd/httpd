@@ -115,7 +115,7 @@ static const command_rec ssl_config_cmds[] = {
                 "TLS session ticket encryption/decryption key file (RFC 5077) "
                 "('/path/to/file' - file with 48 bytes of random data)")
 #endif
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     SSL_CMD_SRV(ESNIKeyDir, TAKE1,
                 "TLS ESNI Key Directory"
                 "('/path/to/dir' - directory with ESNI key pairs)")

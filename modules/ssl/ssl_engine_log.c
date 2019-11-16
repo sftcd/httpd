@@ -87,7 +87,7 @@ void ssl_log_ssl_error(const char *file, int line, int level, server_rec *s)
     const char *data;
     int flags;
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     while ((e=ERR_peek_last_error_data(&data, &flags))) {
 
 #else

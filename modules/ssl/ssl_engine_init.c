@@ -32,7 +32,7 @@
 #include "mpm_common.h"
 #include "mod_md.h"
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 /* TODO: use ap_* portable functions */
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -195,7 +195,7 @@ static void ssl_add_version_components(apr_pool_t *p,
                  modver, AP_SERVER_BASEVERSION, incver);
 }
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 /* 
  * load any key files we find in the ESNIKeyDir directory 
  * where there are matching <name>.pub and <name>.priv files
@@ -610,7 +610,7 @@ static apr_status_t ssl_init_ctx_tls_extensions(server_rec *s,
      * protocol version(s) according to the selected (name-based-)vhost, which
      * is not possible at the SNI callback stage (due to OpenSSL internals).
      */
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     SSLSrvConfigRec *sc = mySrvConfig(s);
     if (sc!=NULL && sc->esnikeydir!=NULL) {
         ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10250)
@@ -938,7 +938,7 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
     SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
 #endif
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 #if SSL_HAVE_PROTOCOL_TLSV1_3
 
     /* ESNI only really makes sense for TLSv1.3 */
@@ -1049,7 +1049,7 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
         ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s,
                      "Configuring client authentication");
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 
         if (!SSL_CTX_load_verify_file(ctx,
                                            mctx->auth.ca_cert_file))
@@ -1201,7 +1201,7 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(01900)
                  "Configuring certificate revocation facility");
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     if (!store || !X509_STORE_load_file(store, mctx->crl_file)) {
         ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10236)
                      "Host %s: unable to configure X.509 CRL storage "
@@ -1854,7 +1854,7 @@ static apr_status_t ssl_init_proxy_certs(server_rec *s,
         return ssl_die(s);
     }
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     X509_STORE_load_file(store, pkp->ca_cert_file);
 #else
     X509_STORE_load_locations(store, pkp->ca_cert_file, NULL);

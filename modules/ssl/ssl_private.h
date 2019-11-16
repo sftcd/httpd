@@ -105,6 +105,14 @@
 #include <openssl/engine.h>
 #endif
 
+/*
+ * Check if we have an ESNI-enabled OpenSSL 
+ * If we do then this symbol will be defined in ssl.h
+ */
+#if defined(SSL_OP_ESNI_GREASE)
+#define HAVE_OPENSSL_ESNI
+#endif
+
 #if (OPENSSL_VERSION_NUMBER < 0x0090801f)
 #error mod_ssl requires OpenSSL 0.9.8a or later
 #endif
@@ -758,7 +766,7 @@ struct SSLSrvConfigRec {
     BOOL             compression;
 #endif
     BOOL             session_tickets;
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     const char *esnikeydir;
 #endif
 };
@@ -809,7 +817,7 @@ const char  *ssl_cmd_SSLPassPhraseDialog(cmd_parms *, void *, const char *);
 const char  *ssl_cmd_SSLCryptoDevice(cmd_parms *, void *, const char *);
 const char  *ssl_cmd_SSLRandomSeed(cmd_parms *, void *, const char *, const char *, const char *);
 const char  *ssl_cmd_SSLEngine(cmd_parms *, void *, const char *);
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 const char  *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg);
 #endif
 const char  *ssl_cmd_SSLCipherSuite(cmd_parms *, void *, const char *, const char *);
@@ -925,7 +933,7 @@ int          ssl_callback_ServerNameIndication(SSL *, int *, modssl_ctx_t *);
 #endif
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(LIBRESSL_VERSION_NUMBER)
 int          ssl_callback_ClientHello(SSL *, int *, void *);
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 unsigned int ssl_callback_ESNI(SSL *,char *);
 #endif
 #endif

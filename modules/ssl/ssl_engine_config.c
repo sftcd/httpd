@@ -231,7 +231,7 @@ static SSLSrvConfigRec *ssl_config_server_new(apr_pool_t *p)
     sc->compression            = UNSET;
 #endif
     sc->session_tickets        = UNSET;
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     sc->esnikeydir             = NULL;
 #endif
 
@@ -371,7 +371,7 @@ void *ssl_config_server_merge(apr_pool_t *p, void *basev, void *addv)
     cfgMergeBool(compression);
 #endif
     cfgMergeBool(session_tickets);
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     cfgMergeString(esnikeydir);
 #endif
 
@@ -845,7 +845,7 @@ const char *ssl_cmd_SSLEngine(cmd_parms *cmd, void *dcfg, const char *arg)
     return "Argument must be On, Off, or Optional";
 }
 
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
 const char *ssl_cmd_SSLESNIKeyDir(cmd_parms *cmd, void *dcfg, const char *arg)
 {
     SSLSrvConfigRec *sc = mySrvConfig(cmd->server);
@@ -2672,7 +2672,7 @@ static void ssl_srv_dump(SSLSrvConfigRec *sc, apr_pool_t *p,
     DMP_ON_OFF("SSLFIPS", sc->fips);
 #endif
     DMP_ON_OFF("SSLSessionTickets", sc->session_tickets);
-#ifndef OPENSSL_NO_ESNI
+#ifdef HAVE_OPENSSL_ESNI
     DMP_STRING("SSLESNIKeyDir", sc->esnikeydir);
 #endif
 }
