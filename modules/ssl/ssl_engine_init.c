@@ -32,6 +32,14 @@
 #include "mod_md.h"
 #include "util_md5.h"
 
+#ifdef HAVE_OPENSSL_ECH
+/* TODO: use ap_* portable functions */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <openssl/ech.h>
+#endif
+
 static apr_status_t ssl_init_ca_cert_path(server_rec *, apr_pool_t *, const char *,
                                           STACK_OF(X509_NAME) *, STACK_OF(X509_INFO) *);
 
@@ -189,6 +197,103 @@ static void ssl_add_version_components(apr_pool_t *ptemp, apr_pool_t *pconf,
                  modver, AP_SERVER_BASEVERSION, incver);
 }
 
+#ifdef HAVE_OPENSSL_ECH
+/* 
+ * load any key files we find in the ECHKeyDir directory 
+ * where there are matching <name>.pub and <name>.priv files
+ * that match 
+ */
+static int load_echkeys(SSL_CTX *ctx, const char *echdir, server_rec *s, apr_pool_t *ptemp)
+{
+    /*
+     * Try load any good looking public/private ECH values found in files in that directory
+     *
+     * This code is derived from what I added to openssl s_server, which you can find
+     * in apps/s_server.c in my openssl fork, https://github.com/sftcd/openssl
+     */
+    if (echdir==NULL) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10254)
+                "load_echkeys: no directory name - exiting");
+        return -1;
+    }
+    size_t elen=strlen(echdir);
+    if ((elen+7) >= PATH_MAX) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10255)
+                "load_echkeys: directory name too long: %s - exiting",echdir);
+        return -1;
+    }
+    int keystried=0;
+    int keysworked=0;
+
+    apr_dir_t *dir;
+    apr_finfo_t direntry;
+    apr_int32_t finfo_flags = APR_FINFO_TYPE|APR_FINFO_NAME;
+
+    if (!echdir || (apr_dir_open(&dir, echdir, ptemp) != APR_SUCCESS)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10258)
+                "load_echkeys: can't open directory %s - exiting",echdir);
+        return -1;
+    }
+
+    while ((apr_dir_read(&direntry, finfo_flags, dir)) == APR_SUCCESS) {
+        const char *fname;
+        if (direntry.filetype == APR_DIR) {
+            continue; /* don't try to load directories */
+        }
+        fname = apr_pstrcat(ptemp, echdir, "/", direntry.name, NULL);
+        /*
+         * If file name matches "*.ech" then try load that 
+         */
+        if (!fname) {
+            continue;
+        }
+        size_t pnlen=strlen(fname);
+        if (pnlen<5 || pnlen>PATH_MAX-1) {
+            continue;
+        }
+        if (!(fname[pnlen-4]=='.'
+            && fname[pnlen-3]=='e'
+            && fname[pnlen-2]=='c'
+            && fname[pnlen-1]=='h')) {
+            continue;
+        }
+        /* should likely use apr_stat instead */
+        struct stat thestat;
+        apr_finfo_t theinfo;
+        if ( (apr_stat (&theinfo, fname, APR_FINFO_MIN, ptemp)==APR_SUCCESS) ) {
+            keystried++;
+            if (SSL_CTX_ech_server_enable_file(ctx, fname,
+                                               SSL_ECH_USE_FOR_RETRY) != 1) {
+                ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10230)
+                    "load_echkeys: failed for %s (could be non-fatal)",fname);
+            } else {
+                ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10231)
+                    "load_echkeys: worked for %s",fname);
+                keysworked++;
+            }
+        }
+
+    }
+    apr_dir_close(dir);
+
+    int keysloaded=0;
+    if (!SSL_CTX_ech_server_get_key_status(ctx,&keysloaded)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10232)
+            "SSL_CTX_ech_server_key_status failed - exiting");
+        return -1;
+    }
+    if (keysworked==0) {
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(10249)
+            "load_echkeys: didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
+            keystried,keysloaded);
+    } else {
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10259)
+            "ECH: %d keys loaded", keysloaded);
+    }
+    return 0;
+}
+#endif
+
 /*  _________________________________________________________________
 **
 **  Let other answer special connection attempts. 
@@ -325,6 +430,7 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
         if (sc->server && sc->server->pphrase_dialog_type == SSL_PPTYPE_UNSET) {
             sc->server->pphrase_dialog_type = SSL_PPTYPE_BUILTIN;
         }
+
     }
 
 #if APR_HAS_THREADS && MODSSL_USE_OPENSSL_PRE_1_1_API
@@ -574,7 +680,19 @@ static apr_status_t ssl_init_ctx_tls_extensions(server_rec *s,
      * protocol version(s) according to the selected (name-based-)vhost, which
      * is not possible at the SNI callback stage (due to OpenSSL internals).
      */
+#ifdef HAVE_OPENSSL_ECH
+    SSLSrvConfigRec *sc = mySrvConfig(s);
+    if (sc!=NULL && sc->echkeydir!=NULL) {
+        SSL_CTX_ech_set_callback(mctx->ssl_ctx, ssl_callback_ECH);
+    } else {
+        ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10253)
+            "ECHKeyDir not set - using ClientHello callback for SNI");
+        SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
+    }
+
+#else
     SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
+#endif
 #endif
 
 #ifdef HAVE_OCSP_STAPLING
@@ -904,7 +1022,40 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
         SSL_CTX_set_options(ctx, SSL_OP_IGNORE_UNEXPECTED_EOF);
     }
 #endif
-    
+
+#ifdef HAVE_OPENSSL_ECH
+#if SSL_HAVE_PROTOCOL_TLSV1_3
+
+    /* ECH only really makes sense for TLSv1.3 */
+    prot=SSL_CTX_get_max_proto_version(ctx);
+    if (sc->echkeydir) {
+        if (prot == TLS1_3_VERSION) {
+            /* try load the keys */
+            int rv=load_echkeys(ctx,sc->echkeydir,s,ptemp);
+            if (rv!=0) {
+                ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10233)
+                    "ECHKeyDir failed to load keys - exiting");
+                SSL_CTX_free(ctx);
+                mctx->ssl_ctx = NULL;
+                return ssl_die(s);
+            }
+        } else {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10228)
+                 "ECHKeyDir configured but TLSv1.3 turned off - exiting.");
+            SSL_CTX_free(ctx);
+            mctx->ssl_ctx = NULL;
+            return ssl_die(s);
+        } 
+    }
+
+#else
+    if (sc->echkeydir) {
+        ap_log_error(APLOG_MARK, APLOG_WARN, 0, s, APLOGNO(10229)
+                 "ECHKeyDir configured but no TLSv1.3 so ECH will be ignored.");
+    }
+#endif
+#endif
+
     return APR_SUCCESS;
 }
 
@@ -1016,14 +1167,40 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
         ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s,
                      "Configuring client authentication");
 
+#ifdef HAVE_OPENSSL_ESNI
+
+        if (!SSL_CTX_load_verify_file(ctx,
+                                           mctx->auth.ca_cert_file))
+        {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10234)
+                    "Unable to configure verify CA file "
+                    "for client authentication");
+            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+            return ssl_die(s);
+        }
+
+        if (!SSL_CTX_load_verify_dir(ctx,
+                                           mctx->auth.ca_cert_path))
+        {
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10235)
+                    "Unable to configure verify CA dir "
+                    "for client authentication");
+            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+            return ssl_die(s);
+        }
+
+#else
         if (!modssl_CTX_load_verify_locations(ctx, mctx->auth.ca_cert_file,
                                                    mctx->auth.ca_cert_path)) {
+
             ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(01895)
                     "Unable to configure verify locations "
                     "for client authentication");
             ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
             return ssl_die(s);
         }
+
+#endif
 
         if (mctx->pks && (mctx->pks->ca_name_file || mctx->pks->ca_name_path)) {
             ca_list = ssl_init_FindCAList(s, ptemp,
@@ -1157,6 +1334,15 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(01900)
                  "Configuring certificate revocation facility");
 
+#ifdef HAVE_OPENSSL_ESNI
+    if (!store || !X509_STORE_load_file(store, mctx->crl_file)) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10236)
+                     "Host %s: unable to configure X.509 CRL storage "
+                     "for certificate revocation", mctx->sc->vhost_id);
+        ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
+        return ssl_die(s);
+    }
+#else
     if (!store || !modssl_X509_STORE_load_locations(store, mctx->crl_file,
                                                            mctx->crl_path)) {
         ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(01901)
@@ -1165,6 +1351,7 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
         ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
         return ssl_die(s);
     }
+#endif
 
     switch (crl_check_mode) {
        case SSL_CRLCHECK_LEAF:
@@ -1887,7 +2074,11 @@ static apr_status_t ssl_init_proxy_certs(server_rec *s,
         return ssl_die(s);
     }
 
+#ifdef HAVE_OPENSSL_ESNI
+    X509_STORE_load_file(store, pkp->ca_cert_file);
+#else
     modssl_X509_STORE_load_locations(store, pkp->ca_cert_file, NULL);
+#endif
 
     for (n = 0; n < ncerts; n++) {
         int i;
