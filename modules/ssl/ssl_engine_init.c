@@ -1167,29 +1167,6 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
         ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s,
                      "Configuring client authentication");
 
-#ifdef HAVE_OPENSSL_ESNI
-
-        if (!SSL_CTX_load_verify_file(ctx,
-                                           mctx->auth.ca_cert_file))
-        {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10234)
-                    "Unable to configure verify CA file "
-                    "for client authentication");
-            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
-            return ssl_die(s);
-        }
-
-        if (!SSL_CTX_load_verify_dir(ctx,
-                                           mctx->auth.ca_cert_path))
-        {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10235)
-                    "Unable to configure verify CA dir "
-                    "for client authentication");
-            ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
-            return ssl_die(s);
-        }
-
-#else
         if (!modssl_CTX_load_verify_locations(ctx, mctx->auth.ca_cert_file,
                                                    mctx->auth.ca_cert_path)) {
 
@@ -1199,8 +1176,6 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
             ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
             return ssl_die(s);
         }
-
-#endif
 
         if (mctx->pks && (mctx->pks->ca_name_file || mctx->pks->ca_name_path)) {
             ca_list = ssl_init_FindCAList(s, ptemp,
@@ -1334,15 +1309,6 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(01900)
                  "Configuring certificate revocation facility");
 
-#ifdef HAVE_OPENSSL_ESNI
-    if (!store || !X509_STORE_load_file(store, mctx->crl_file)) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10236)
-                     "Host %s: unable to configure X.509 CRL storage "
-                     "for certificate revocation", mctx->sc->vhost_id);
-        ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
-        return ssl_die(s);
-    }
-#else
     if (!store || !modssl_X509_STORE_load_locations(store, mctx->crl_file,
                                                            mctx->crl_path)) {
         ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(01901)
@@ -1351,7 +1317,6 @@ static apr_status_t ssl_init_ctx_crl(server_rec *s,
         ssl_log_ssl_error(SSLLOG_MARK, APLOG_EMERG, s);
         return ssl_die(s);
     }
-#endif
 
     switch (crl_check_mode) {
        case SSL_CRLCHECK_LEAF:
@@ -2074,11 +2039,7 @@ static apr_status_t ssl_init_proxy_certs(server_rec *s,
         return ssl_die(s);
     }
 
-#ifdef HAVE_OPENSSL_ESNI
-    X509_STORE_load_file(store, pkp->ca_cert_file);
-#else
     modssl_X509_STORE_load_locations(store, pkp->ca_cert_file, NULL);
-#endif
 
     for (n = 0; n < ncerts; n++) {
         int i;
