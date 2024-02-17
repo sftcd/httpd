@@ -1,0 +1,4 @@
+debian/PACKAGING
+debian/README.backtrace
+debian/README.multiple-instances
+NOTICE

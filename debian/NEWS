@@ -1,0 +1,9 @@
+apache2 (2.4.54-3) unstable; urgency=medium
+
+  This version does not automatically enable the apache2 config snippet for
+  /manual anymore. If you want to have it enabled you will need to do this
+  yourself, e.g. with
+
+    /usr/sbin/a2enconf apache2-doc
+
+ -- Yadd <yadd@debian.org>  Sat, 01 Apr 2023 08:17:08 +0400

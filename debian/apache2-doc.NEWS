@@ -1,0 +1,10 @@
+apache2 (2.4.54-2) unstable; urgency=medium
+
+  This version does not automatically enable the apache2 config snippet for
+  /manual anymore. If you want to have it enabled you will need to do this
+  yourself, e.g. with
+  ```
+    /usr/sbin/a2enconf apache2-doc
+  ```
+
+ -- Hendrik Jaeger <deb@henk.geekmail.org>  Thu, 06 Oct 2022 10:45:51 +0200

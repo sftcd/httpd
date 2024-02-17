@@ -1,0 +1,9 @@
+# Even though one line is very long, it's still hand-editable source code
+source-is-missing [*docs/manual/style/scripts/prettify.js*]
+# Ignore this
+national-encoding [*debian/perl-framework*]
+national-encoding [*debian/upstream/signing-key.asc*]
+debian-rules-parses-dpkg-parsechangelog *
+# False positives
+source-is-missing [*.html*]
+very-long-line-length-in-source-file *docs/*

@@ -1,0 +1,21 @@
+From: Jochen Sprickerhof <git@jochen.sprickerhof.de>
+Date: Fri, 5 Jan 2024 16:37:50 +0100
+Subject: Fixes for Debian build
+
+---
+ configure.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/configure.in b/configure.in
+index 6c4c341..c323919 100644
+--- a/configure.in
++++ b/configure.in
+@@ -21,7 +21,7 @@ HTTPD_MMN=`$abs_srcdir/build/get-version.sh mmn $abs_srcdir/include/ap_mmn.h MOD
+ dnl #
+ dnl # Include our own M4 macros along with those for APR and libtool
+ dnl #
+-sinclude(build/apr_common.m4)
++sinclude(/usr/share/apr-1.0/build/apr_common.m4)
+ sinclude(build/find_apr.m4)
+ sinclude(build/find_apu.m4)
+ sinclude(acinclude.m4)

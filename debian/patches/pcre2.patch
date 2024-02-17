@@ -1,0 +1,377 @@
+Description: build with pcre2
+Origin: other, https://helperbyte.com/questions/457338/how-to-make-pcre2-support-for-apache-24
+Bug-Debian: https://bugs.debian.org/1000114
+Forwarded: not-needed
+Reviewed-By: Yadd <yadd@debian.org>
+Last-Update: 2021-12-28
+
+--- a/build/NWGNUmakefile
++++ b/build/NWGNUmakefile
+@@ -20,7 +20,7 @@
+ 	$(SRC)/include/ap_config_layout.h \
+ 	$(NWOS)/test_char.h \
+ 	$(PCRE)/config.h \
+-	$(PCRE)/pcre.h \
++	$(PCRE)/pcre2.h \
+ 	$(EOLIST) 
+     
+ nlms :: libs $(NWOS)/httpd.imp $(DAV)/main/dav.imp $(STDMOD)/cache/mod_cache.imp
+@@ -77,7 +77,7 @@
+ 	@echo $(DL)GEN  $@$(DL)
+ 	$< $@
+ 
+-%.exe: $(PCRE)/%.c $(PCRE)/config.h $(PCRE)/pcre.h
++%.exe: $(PCRE)/%.c $(PCRE)/config.h $(PCRE)/pcre2.h
+ 	@echo $(DL)Creating Build Helper $@$(DL)
+ 	$(CC_FOR_BUILD) $(CFLAGS_FOR_BUILD) -DHAVE_CONFIG_H $< -o $@
+ 
+@@ -117,7 +117,7 @@
+ clean ::
+ 	$(call DEL,$(SRC)/include/ap_config_layout.h)
+ 	$(call DEL,$(PCRE)/config.h)
+-	$(call DEL,$(PCRE)/pcre.h)
++	$(call DEL,$(PCRE)/pcre2.h)
+ 	$(call DEL,$(STDMOD)/cache/mod_cache.imp)
+ 	$(call DEL,$(DAV)/main/dav.imp)
+ 	$(call DEL,$(NWOS)/httpd.imp)
+--- a/include/ap_config_auto.h.in
++++ b/include/ap_config_auto.h.in
+@@ -393,3 +393,6 @@
+ 
+ /* Define to 'int' if <sys/resource.h> doesn't define it for us */
+ #undef rlim_t
++
++/* Load PCRE2 */
++#define HAVE_PCRE2 1
+--- a/include/ap_regex.h
++++ b/include/ap_regex.h
+@@ -70,19 +70,22 @@
+ 
+ /* Options for ap_regcomp, ap_regexec, and ap_rxplus versions: */
+ 
+-#define AP_REG_ICASE    0x01 /** use a case-insensitive match */
+-#define AP_REG_NEWLINE  0x02 /** don't match newlines against '.' etc */
+-#define AP_REG_NOTBOL   0x04 /** ^ will not match against start-of-string */
+-#define AP_REG_NOTEOL   0x08 /** $ will not match against end-of-string */
+-
+-#define AP_REG_EXTENDED (0)  /** unused */
+-#define AP_REG_NOSUB    (0)  /** unused */
+-
+-#define AP_REG_MULTI 0x10    /* perl's /g (needs fixing) */
+-#define AP_REG_NOMEM 0x20    /* nomem in our code */
+-#define AP_REG_DOTALL 0x40   /* perl's /s flag */
++#define AP_REG_ICASE    0x01 /**< use a case-insensitive match */
++#define AP_REG_NEWLINE  0x02 /**< don't match newlines against '.' etc */
++#define AP_REG_NOTBOL   0x04 /**< ^ will not match against start-of-string */
++#define AP_REG_NOTEOL   0x08 /**< $ will not match against end-of-string */
++
++#define AP_REG_EXTENDED (0)  /**< unused */
++#define AP_REG_NOSUB    (0)  /**< unused */
++
++#define AP_REG_MULTI    0x10 /**< perl's /g (needs fixing) */
++#define AP_REG_NOMEM    0x20 /**< nomem in our code */
++#define AP_REG_DOTALL   0x40 /**< perl's /s flag */
++ 
++#define AP_REG_NOTEMPTY 0x080 /**< Empty match not valid */
++#define AP_REG_ANCHORED 0x100 /**< Match at the first position */
+ 
+-#define AP_REG_DOLLAR_ENDONLY 0x200 /* '$' matches at end of subject string only */
++#define AP_REG_DOLLAR_ENDONLY 0x200 /**< '$' matches at end of subject string only */
+ 
+ #define AP_REG_NO_DEFAULT 0x400 /**< Don't implicitely add AP_REG_DEFAULT options */
+ 
+@@ -90,6 +93,12 @@
+ 
+ #define AP_REG_DEFAULT (AP_REG_DOTALL|AP_REG_DOLLAR_ENDONLY)
+ 
++/* Arguments for ap_pcre_version_string */
++enum {
++  AP_REG_PCRE_COMPILED = 0, /** PCRE version used during program compilation */
++  AP_REG_PCRE_LOADED        /** PCRE version loaded at runtime */
++};
++
+ /* Error values: */
+ enum {
+   AP_REG_ASSERT = 1,  /** internal error ? */
+@@ -114,6 +123,15 @@
+ /* The functions */
+ 
+ /**
++ * Return PCRE version string.
++ * @param which Either AP_REG_PCRE_COMPILED (PCRE version used
++ *              during program compilation) or AP_REG_PCRE_LOADED
++ *              (PCRE version used at runtime)
++ * @return The PCRE version string
++ */
++AP_DECLARE(const char *) ap_pcre_version_string(int which);
++
++/**
+  * Get default compile flags
+  * @return Bitwise OR of AP_REG_* flags
+  */
+@@ -277,5 +295,4 @@
+ }   /* extern "C" */
+ #endif
+ 
+-#endif /* AP_REGEX_T */
+-
++#endif /* AP_REGEX_H */
+--- a/server/util_pcre.c
++++ b/server/util_pcre.c
+@@ -55,19 +55,17 @@
+ #include "httpd.h"
+ #include "apr_strings.h"
+ #include "apr_tables.h"
+-#include "pcre.h"
+ 
+-/* PCRE_DUPNAMES is only present since version 6.7 of PCRE */
+-#ifndef PCRE_DUPNAMES
+-#error PCRE Version 6.7 or later required!
+-#else
++#define PCRE2_CODE_UNIT_WIDTH 8
++#include "pcre2.h"
++#define PCREn(x) PCRE2_ ## x
+ 
++/* PCRE_DUPNAMES is only present since version 6.7 of PCRE */
+ #define APR_WANT_STRFUNC
+ #include "apr_want.h"
+ 
+ #ifndef POSIX_MALLOC_THRESHOLD
+ #define POSIX_MALLOC_THRESHOLD (10)
+-#endif
+ 
+ /* Table of error strings corresponding to POSIX error codes; must be
+  * kept in synch with include/ap_regex.h's AP_REG_E* definitions.
+@@ -81,6 +79,20 @@
+     "match failed"              /* AP_REG_NOMATCH */
+ };
+ 
++AP_DECLARE(const char *) ap_pcre_version_string(int which)
++{
++    static char buf[80];
++    switch (which) {
++    case AP_REG_PCRE_COMPILED:
++        return APR_STRINGIFY(PCREn(MAJOR)) "." APR_STRINGIFY(PCREn(MINOR)) " " APR_STRINGIFY(PCREn(DATE));
++    case AP_REG_PCRE_LOADED:
++        pcre2_config(PCRE2_CONFIG_VERSION, buf);
++        return buf;
++    default:
++        return "Unknown";
++    }
++}
++
+ AP_DECLARE(apr_size_t) ap_regerror(int errcode, const ap_regex_t *preg,
+                                    char *errbuf, apr_size_t errbuf_size)
+ {
+@@ -115,7 +127,7 @@
+ 
+ AP_DECLARE(void) ap_regfree(ap_regex_t *preg)
+ {
+-    (pcre_free)(preg->re_pcre);
++    pcre2_code_free(preg->re_pcre);
+ }
+ 
+ 
+@@ -168,39 +180,38 @@
+ */
+ AP_DECLARE(int) ap_regcomp(ap_regex_t * preg, const char *pattern, int cflags)
+ {
+-    const char *errorptr;
+-    int erroffset;
++    uint32_t capcount;
++    size_t erroffset;
+     int errcode = 0;
+-    int options = PCRE_DUPNAMES;
++    int options = PCREn(DUPNAMES);
+ 
+     if ((cflags & AP_REG_NO_DEFAULT) == 0)
+         cflags |= default_cflags;
+ 
+     if ((cflags & AP_REG_ICASE) != 0)
+-        options |= PCRE_CASELESS;
++        options |= PCREn(CASELESS);
+     if ((cflags & AP_REG_NEWLINE) != 0)
+-        options |= PCRE_MULTILINE;
++        options |= PCREn(MULTILINE);
+     if ((cflags & AP_REG_DOTALL) != 0)
+-        options |= PCRE_DOTALL;
++        options |= PCREn(DOTALL);
+     if ((cflags & AP_REG_DOLLAR_ENDONLY) != 0)
+-        options |= PCRE_DOLLAR_ENDONLY;
++        options |= PCREn(DOLLAR_ENDONLY);
+ 
+-    preg->re_pcre =
+-        pcre_compile2(pattern, options, &errcode, &errorptr, &erroffset, NULL);
+-    preg->re_erroffset = erroffset;
++    preg->re_pcre = pcre2_compile((const unsigned char *)pattern,
++                                  PCRE2_ZERO_TERMINATED, options, &errcode,
++                                  &erroffset, NULL);
+ 
++    preg->re_erroffset = erroffset;
+     if (preg->re_pcre == NULL) {
+-        /*
+-         * There doesn't seem to be constants defined for compile time error
+-         * codes. 21 is "failed to get memory" according to pcreapi(3).
+-         */
++        /* Internal ERR21 is "failed to get memory" according to pcreapi(3) */
+         if (errcode == 21)
+             return AP_REG_ESPACE;
+         return AP_REG_INVARG;
+     }
+ 
+-    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+-                   PCRE_INFO_CAPTURECOUNT, &(preg->re_nsub));
++    pcre2_pattern_info((const pcre2_code *)preg->re_pcre,
++                       PCRE2_INFO_CAPTURECOUNT, &capcount);
++    preg->re_nsub = capcount;
+     return 0;
+ }
+ 
+@@ -232,74 +243,77 @@
+ {
+     int rc;
+     int options = 0;
+-    int *ovector = NULL;
+-    int small_ovector[POSIX_MALLOC_THRESHOLD * 3];
+-    int allocated_ovector = 0;
++    apr_size_t nlim;
++    pcre2_match_data *matchdata;
++    size_t *ovector;
+ 
+     if ((eflags & AP_REG_NOTBOL) != 0)
+-        options |= PCRE_NOTBOL;
++        options |= PCREn(NOTBOL);
+     if ((eflags & AP_REG_NOTEOL) != 0)
+-        options |= PCRE_NOTEOL;
+-
+-    ((ap_regex_t *)preg)->re_erroffset = (apr_size_t)(-1);    /* Only has meaning after compile */
+-
+-    if (nmatch > 0) {
+-        if (nmatch <= POSIX_MALLOC_THRESHOLD) {
+-            ovector = &(small_ovector[0]);
+-        }
+-        else {
+-            ovector = (int *)malloc(sizeof(int) * nmatch * 3);
+-            if (ovector == NULL)
+-                return AP_REG_ESPACE;
+-            allocated_ovector = 1;
+-        }
+-    }
+-
+-    rc = pcre_exec((const pcre *)preg->re_pcre, NULL, buff, (int)len,
+-                   0, options, ovector, nmatch * 3);
+-
++        options |= PCREn(NOTEOL);
++    if ((eflags & AP_REG_NOTEMPTY) != 0)
++        options |= PCREn(NOTEMPTY);
++    if ((eflags & AP_REG_ANCHORED) != 0)
++        options |= PCREn(ANCHORED);
++
++    /* TODO: create a generic TLS matchdata buffer of some nmatch limit,
++     * e.g. 10 matches, to avoid a malloc-per-call. If it must be allocated,
++     * implement a general context using palloc and no free implementation.
++     */
++    nlim = ((apr_size_t)preg->re_nsub + 1) > nmatch
++         ? ((apr_size_t)preg->re_nsub + 1) : nmatch;
++    matchdata = pcre2_match_data_create(nlim, NULL);
++    if (matchdata == NULL)
++        return AP_REG_ESPACE;
++    ovector = pcre2_get_ovector_pointer(matchdata);
++    rc = pcre2_match((const pcre2_code *)preg->re_pcre,
++                     (const unsigned char *)buff, len,
++                     0, options, matchdata, NULL);
+     if (rc == 0)
+-        rc = nmatch;            /* All captured slots were filled in */
++        rc = nlim;            /* All captured slots were filled in */
+ 
+     if (rc >= 0) {
+         apr_size_t i;
+-        for (i = 0; i < (apr_size_t)rc; i++) {
++        nlim = (apr_size_t)rc < nmatch ? (apr_size_t)rc : nmatch;
++        for (i = 0; i < nlim; i++) {
+             pmatch[i].rm_so = ovector[i * 2];
+             pmatch[i].rm_eo = ovector[i * 2 + 1];
+         }
+-        if (allocated_ovector)
+-            free(ovector);
+         for (; i < nmatch; i++)
+             pmatch[i].rm_so = pmatch[i].rm_eo = -1;
+-        return 0;
+     }
+ 
++    pcre2_match_data_free(matchdata);
++
++    if (rc >= 0) {
++        return 0;
++    }
+     else {
+-        if (allocated_ovector)
+-            free(ovector);
++        if (rc <= PCRE2_ERROR_UTF8_ERR1 && rc >= PCRE2_ERROR_UTF8_ERR21)
++            return AP_REG_INVARG;
+         switch (rc) {
+-        case PCRE_ERROR_NOMATCH:
++        case PCREn(ERROR_NOMATCH):
+             return AP_REG_NOMATCH;
+-        case PCRE_ERROR_NULL:
++        case PCREn(ERROR_NULL):
+             return AP_REG_INVARG;
+-        case PCRE_ERROR_BADOPTION:
++        case PCREn(ERROR_BADOPTION):
+             return AP_REG_INVARG;
+-        case PCRE_ERROR_BADMAGIC:
++        case PCREn(ERROR_BADMAGIC):
+             return AP_REG_INVARG;
+-        case PCRE_ERROR_UNKNOWN_NODE:
+-            return AP_REG_ASSERT;
+-        case PCRE_ERROR_NOMEMORY:
++        case PCREn(ERROR_NOMEMORY):
+             return AP_REG_ESPACE;
+-#ifdef PCRE_ERROR_MATCHLIMIT
+-        case PCRE_ERROR_MATCHLIMIT:
++        case PCREn(ERROR_MATCHLIMIT):
+             return AP_REG_ESPACE;
++#if defined(PCRE_ERROR_UNKNOWN_NODE)
++        case PCRE_ERROR_UNKNOWN_NODE:
++            return AP_REG_ASSERT;
+ #endif
+-#ifdef PCRE_ERROR_BADUTF8
+-        case PCRE_ERROR_BADUTF8:
++#if defined(PCRE_ERROR_BADUTF8)
++        case PCREn(ERROR_BADUTF8):
+             return AP_REG_INVARG;
+ #endif
+-#ifdef PCRE_ERROR_BADUTF8_OFFSET
+-        case PCRE_ERROR_BADUTF8_OFFSET:
++#if defined(PCRE_ERROR_BADUTF8_OFFSET)
++        case PCREn(ERROR_BADUTF8_OFFSET):
+             return AP_REG_INVARG;
+ #endif
+         default:
+@@ -312,17 +326,17 @@
+                            apr_array_header_t *names, const char *prefix,
+                            int upper)
+ {
+-    int namecount;
+-    int nameentrysize;
+-    int i;
+     char *nametable;
+ 
+-    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+-                       PCRE_INFO_NAMECOUNT, &namecount);
+-    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+-                       PCRE_INFO_NAMEENTRYSIZE, &nameentrysize);
+-    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+-                       PCRE_INFO_NAMETABLE, &nametable);
++    uint32_t namecount;
++    uint32_t nameentrysize;
++    uint32_t i;
++    pcre2_pattern_info((const pcre2_code *)preg->re_pcre,
++                       PCRE2_INFO_NAMECOUNT, &namecount);
++    pcre2_pattern_info((const pcre2_code *)preg->re_pcre,
++                       PCRE2_INFO_NAMEENTRYSIZE, &nameentrysize);
++    pcre2_pattern_info((const pcre2_code *)preg->re_pcre,
++                       PCRE2_INFO_NAMETABLE, &nametable);
+ 
+     for (i = 0; i < namecount; i++) {
+         const char *offset = nametable + i * nameentrysize;

@@ -1,0 +1,15 @@
+fhs_compliance.patch
+no_LD_LIBRARY_PATH.patch
+suexec-CVE-2007-1742.patch
+customize_apxs.patch
+build_suexec-custom.patch
+reproducible_builds.diff
+#mod_proxy_ajp-add-secret-parameter.diff
+#buffer-http-request-bodies-for-tlsv13.diff
+#tlsv13-add-logno.diff
+0008-Fixes-for-Debian-build.patch
+#pcre2.patch
+#child_processes_fail_to_start.patch
+
+# This patch is applied manually
+#suexec-custom.patch
