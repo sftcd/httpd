@@ -51,7 +51,7 @@ jobs:
 
       - name: Run sbuild
         run: |
-          sed -i "1 s/([^)]*)/($(git describe --tags | sed 's/^[^0-9]*//;s/-/./g;s/_/./g')-$(date -u '+%Y%m%d.%H%M%S%N'))/" debian/changelog
+          sed -i "1 s/([^)]*)/($(git describe --tags --always | sed 's/^[^0-9]*//;s/-/./g;s/_/./g')-$(date -u '+%Y%m%d.%H%M%S%N'))/" debian/changelog
           sbuild -d unstable --chroot-mode=unshare --no-clean-source --no-run-lintian \
             --extra-repository="deb [trusted=yes] https://github.com/defo-project/openssl/raw/packages/ ./" \
             --dpkg-source-opts="-Zgzip -z1 --format=1.0 -sn" --build-dir="$HOME/apt_repo"

@@ -2500,30 +2500,30 @@ unsigned int ssl_callback_ECH(SSL *ssl, const char *str)
     int echrv=SSL_ech_get_status((SSL*)ssl,&inner_sni,&outer_sni);
     switch (echrv) {
     case SSL_ECH_STATUS_NOT_TRIED:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10237)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10497)
             "ECH not attempted");
         break;
     case SSL_ECH_STATUS_FAILED:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10238)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10498)
             "ECH tried but failed");
         break;
     case SSL_ECH_STATUS_BAD_NAME:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10239)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10499)
             "ECH worked but bad name");
         break;
     case SSL_ECH_STATUS_SUCCESS:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10240)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10500)
                 "ECH success outer_sni: %s inner_sni: %s",(outer_sni?outer_sni:"NONE"),(inner_sni?inner_sni:"NONE"));
         break;
     default:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10241)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10501)
             "Error getting ECH status");
     }
 
     /* try init vhost and see what breaks */
     apr_status_t ivstatus=init_vhost(c, ssl, ech_servername);
     if (ivstatus!=APR_SUCCESS) {
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10247)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10502)
                       "init_vhost failed for %s",ech_servername);
         return SSL_TLSEXT_ERR_NOACK;
     }
