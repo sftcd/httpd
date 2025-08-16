@@ -2534,10 +2534,10 @@ int ssl_callback_ClientHello(SSL *ssl, int *al, void *arg)
 #ifdef HAVE_OPENSSL_ECH
 
     if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_ech, &pos, &remaining)) {
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10503)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10540)
                       "there is an ECH extension");
     } else {
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10504)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10541)
                       "there is NO ECH extension");
     }
 #endif
