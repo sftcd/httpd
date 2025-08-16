@@ -2415,41 +2415,44 @@ static apr_status_t init_vhost(conn_rec *c, SSL *ssl, const char *servername)
 #ifdef HAVE_OPENSSL_ECH
 unsigned int ssl_callback_ECH(SSL *ssl, const char *str)  
 {
-    conn_rec *c = (conn_rec *)SSL_get_app_data(ssl);
-    const char *ech_servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+    char *inner_sni=NULL, *outer_sni=NULL;
+    int echrv;
+    conn_rec *c = NULL;
+    const char *ech_servername;
+
+    c = (conn_rec *)SSL_get_app_data(ssl);
+    ech_servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
     if (ech_servername == NULL) {
         return SSL_TLSEXT_ERR_NOACK;
     }
-
-    char *inner_sni=NULL;
-    char *outer_sni=NULL;
-    int echrv=SSL_ech_get1_status((SSL*)ssl,&inner_sni,&outer_sni);
+    echrv=SSL_ech_get1_status((SSL*)ssl,&inner_sni,&outer_sni);
     switch (echrv) {
     case SSL_ECH_STATUS_NOT_TRIED:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10497)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10534)
             "ECH not attempted");
         break;
     case SSL_ECH_STATUS_FAILED:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10498)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10535)
             "ECH tried but failed");
         break;
     case SSL_ECH_STATUS_BAD_NAME:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10499)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10536)
             "ECH worked but bad name");
         break;
     case SSL_ECH_STATUS_SUCCESS:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10500)
-                "ECH success outer_sni: %s inner_sni: %s",(outer_sni?outer_sni:"NONE"),(inner_sni?inner_sni:"NONE"));
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10537)
+            "ECH success outer_sni: %s inner_sni: %s",
+            (outer_sni?outer_sni:"NONE"),(inner_sni?inner_sni:"NONE"));
         break;
     default:
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10501)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10538)
             "Error getting ECH status");
     }
 
     /* try init vhost and see what breaks */
     apr_status_t ivstatus=init_vhost(c, ssl, ech_servername);
     if (ivstatus!=APR_SUCCESS) {
-        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10502)
+        ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(10539)
                       "init_vhost failed for %s",ech_servername);
         return SSL_TLSEXT_ERR_NOACK;
     }

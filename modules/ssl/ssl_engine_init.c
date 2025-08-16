@@ -212,13 +212,13 @@ static int load_echkeys(SSL_CTX *ctx, const char *echdir, server_rec *s, apr_poo
      * in apps/s_server.c in my openssl fork, https://github.com/sftcd/openssl
      */
     if (echdir==NULL) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10505)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10520)
                 "load_echkeys: no directory name - exiting");
         return -1;
     }
     size_t elen=strlen(echdir);
     if ((elen+7) >= PATH_MAX) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10506)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10521)
                 "load_echkeys: directory name too long: %s - exiting",echdir);
         return -1;
     }
@@ -230,14 +230,14 @@ static int load_echkeys(SSL_CTX *ctx, const char *echdir, server_rec *s, apr_poo
     apr_int32_t finfo_flags = APR_FINFO_TYPE|APR_FINFO_NAME;
 
     if (!echdir || (apr_dir_open(&dir, echdir, ptemp) != APR_SUCCESS)) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10507)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10522)
                 "load_echkeys: can't open directory %s - exiting",echdir);
         return -1;
     }
 
     OSSL_ECHSTORE * const es = OSSL_ECHSTORE_new(NULL, NULL);
     if (es == NULL) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10507)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10523)
                 "load_echkeys: can't alloc store");
         return -1;
     }
@@ -274,12 +274,12 @@ static int load_echkeys(SSL_CTX *ctx, const char *echdir, server_rec *s, apr_poo
             const int is_retry_config = OSSL_ECH_FOR_RETRY;
             if (in != NULL
                 && 1 == OSSL_ECHSTORE_read_pem(es, in, is_retry_config)) {
-                ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10509)
+                ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10524)
                     "load_echkeys: worked for %s",fname);
                 keysworked++;
             }
             else {
-                ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10508)
+                ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10525)
                     "load_echkeys: failed for %s (could be non-fatal)",fname);
             }
             BIO_free_all(in);
@@ -290,23 +290,23 @@ static int load_echkeys(SSL_CTX *ctx, const char *echdir, server_rec *s, apr_poo
 
     int keysloaded=0;
     if (!OSSL_ECHSTORE_num_keys(es, &keysloaded)) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10510)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10526)
             "SSL_CTX_ech_server_key_status failed - exiting");
         return -1;
     }
     if (1 != SSL_CTX_set1_echstore(ctx, es)) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10510)
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10527)
             "load_echkeys: SSL_CTX_set1_echstore failed");
         OSSL_ECHSTORE_free(es);
         return -1;
     }
     OSSL_ECHSTORE_free(es);
     if (keysworked==0) {
-        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(10511)
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(10528)
             "load_echkeys: didn't load new keys (%d tried/failed) but we have already some (%d) - continuing",
             keystried,keysloaded);
     } else {
-        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10512)
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(10529)
             "ECH: %d keys loaded", keysloaded);
     }
     return 0;
@@ -449,7 +449,6 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
         if (sc->server && sc->server->pphrase_dialog_type == SSL_PPTYPE_UNSET) {
             sc->server->pphrase_dialog_type = SSL_PPTYPE_BUILTIN;
         }
-
     }
 
 #if APR_HAS_THREADS && MODSSL_USE_OPENSSL_PRE_1_1_API
@@ -606,13 +605,13 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
                                APR_FPROT_UREAD|APR_FPROT_UWRITE,
                                p);
             if (rv) {
-                ap_log_error(APLOG_MARK, APLOG_NOTICE, rv, s, APLOGNO(10518)
+                ap_log_error(APLOG_MARK, APLOG_NOTICE, rv, s, APLOGNO(10226)
                              "Could not open log file '%s' configured via SSLKEYLOGFILE",
                              logfn);
                 return rv;
             }
 
-            ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s, APLOGNO(10519)
+            ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s, APLOGNO(10227)
                          "Init: Logging SSL private key material to %s", logfn);
         }
     }
@@ -704,7 +703,7 @@ static apr_status_t ssl_init_ctx_tls_extensions(server_rec *s,
     if (sc!=NULL && sc->echkeydir!=NULL) {
         SSL_CTX_ech_set_callback(mctx->ssl_ctx, ssl_callback_ECH);
     } else {
-        ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10514)
+        ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, s, APLOGNO(10530)
             "ECHKeyDir not set - using ClientHello callback for SNI");
         SSL_CTX_set_client_hello_cb(mctx->ssl_ctx, ssl_callback_ClientHello, NULL);
     }
@@ -1051,14 +1050,14 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
             /* try load the keys */
             int rv=load_echkeys(ctx,sc->echkeydir,s,ptemp);
             if (rv!=0) {
-                ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10515)
+                ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10531)
                     "ECHKeyDir failed to load keys - exiting");
                 SSL_CTX_free(ctx);
                 mctx->ssl_ctx = NULL;
                 return ssl_die(s);
             }
         } else {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10516)
+            ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(10532)
                  "ECHKeyDir configured but TLSv1.3 turned off - exiting.");
             SSL_CTX_free(ctx);
             mctx->ssl_ctx = NULL;
@@ -1068,7 +1067,7 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
 
 #else
     if (sc->echkeydir) {
-        ap_log_error(APLOG_MARK, APLOG_WARN, 0, s, APLOGNO(10517)
+        ap_log_error(APLOG_MARK, APLOG_WARN, 0, s, APLOGNO(10533)
                  "ECHKeyDir configured but no TLSv1.3 so ECH will be ignored.");
     }
 #endif
@@ -1187,7 +1186,6 @@ static apr_status_t ssl_init_ctx_verify(server_rec *s,
 
         if (!modssl_CTX_load_verify_locations(ctx, mctx->auth.ca_cert_file,
                                                    mctx->auth.ca_cert_path)) {
-
             ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(01895)
                     "Unable to configure verify locations "
                     "for client authentication");
